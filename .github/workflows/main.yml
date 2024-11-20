@@ -1,4 +1,4 @@
-name: CI/CD Workflow Sample
+name: Copy-to-S3
 
 on:                                    
   push:                                
