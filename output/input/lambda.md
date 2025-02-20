@@ -1,112 +1,86 @@
 # コード解析ドキュメント
 
 ## 1. 概要
-このPythonスクリプトは、指定されたディレクトリ内のコードファイルを解析し、Bedrock APIを使用して各ファイルの解析結果をMarkdownファイルとして出力するツールです。主な機能には、.gitignoreパターンに基づくファイルのフィルタリング、Bedrock APIを使用したコード解析、エラー処理とリトライロジックが含まれています。
+このPythonスクリプトは、指定されたディレクトリ内のファイルを処理し、Amazon Bedrock APIを使用してコード解析を行うプログラムです。主な機能として、.gitignoreファイルの考慮、特定の拡張子を持つファイルの処理、Bedrock APIを使用したコード解析、結果のMarkdownファイルへの出力があります。
 
 ## 2. 詳細説明
 
 ### 主要なライブラリとモジュール
-- `json`: JSON データの処理
+- `json`: JSON形式のデータ処理
 - `os`: ファイルシステム操作
 - `pathspec`: .gitignoreパターンの処理
-- `logging`: ログ記録
-- `boto3`: AWS SDK for Python
-- `time`: 時間関連の操作
+- `logging`: ログ出力
+- `boto3`: AWS SDKを使用したBedrock APIとの通信
+- `time`: リトライ時の待機時間制御
 
-### 重要な関数
+### 主要な関数
 
-#### `find_nearest_gitignore(file_path)`
-この関数は、指定されたファイルパスから最も近い.gitignoreファイルを探索します。
+1. `find_nearest_gitignore(file_path)`
+   - 指定されたファイルパスから最も近い.gitignoreファイルを探索します。
+   - 戻り値: .gitignoreの内容とそのディレクトリパス
 
+2. `should_process_file(file_path, base_path, gitignore_spec)`
+   - ファイルが.gitignoreのパターンに該当するかチェックします。
+   - 戻り値: 処理すべきかどうかのブール値
+
+3. `generate_output_path(input_path, output_dir)`
+   - 入力ファイルパスから出力ファイルパスを生成します。
+   - 戻り値: 出力ファイルのパス
+
+4. `analyze_with_bedrock(bedrock_runtime, code_content, file_path)`
+   - Bedrock APIを使用してコードの解析を実行します。
+   - エラー時は最大3回のリトライを行います。
+   - 戻り値: 解析結果の文字列
+
+5. `process_directory(input_dir, output_dir, target_extensions)`
+   - 指定されたディレクトリ内のファイルを処理します。
+   - .gitignoreを考慮し、指定された拡張子のファイルのみを処理します。
+   - 戻り値: 処理結果の辞書
+
+6. `main()`
+   - プログラムのエントリーポイントです。
+   - 環境変数から設定を読み込み、ディレクトリ処理を実行します。
+
+### 重要なコードスニペット
+
+Bedrock APIの呼び出し:
 ```python
-def find_nearest_gitignore(file_path):
-    current_dir = os.path.dirname(os.path.abspath(file_path))
-    while current_dir:
-        gitignore_path = os.path.join(current_dir, '.gitignore')
-        if os.path.exists(gitignore_path):
-            with open(gitignore_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            return content, current_dir
-        parent_dir = os.path.dirname(current_dir)
-        if parent_dir == current_dir:
-            break
-        current_dir = parent_dir
-    return None, None
+flow_response = bedrock_runtime.invoke_flow(
+    flowIdentifier="F9PY7W1IXS",
+    flowAliasIdentifier="2EJ5QG9EI8",
+    inputs=[{
+        'content': {
+            'document': code_content
+        },
+        'nodeName': 'FlowInputNode',
+        'nodeOutputName': 'document'
+    }]
+)
 ```
+このコードは、Bedrock APIを呼び出してコード解析を実行します。`flowIdentifier`と`flowAliasIdentifier`は特定のBedrock Agentを指定し、`inputs`にはコンテンツを含む辞書を渡します。
 
-この関数は、ファイルパスから親ディレクトリを遡って.gitignoreファイルを探し、見つかった場合はその内容と親ディレクトリのパスを返します。
-
-#### `should_process_file(file_path, base_path, gitignore_spec)`
-この関数は、ファイルが.gitignoreのパターンに該当するかをチェックします。
-
+エラーハンドリングとリトライ:
 ```python
-def should_process_file(file_path, base_path, gitignore_spec):
-    if gitignore_spec is None:
-        return True
-    relative_path = os.path.relpath(file_path, base_path)
-    if gitignore_spec.match_file(relative_path):
-        return False
-    return True
-```
-
-gitignore_specがNoneでない場合、相対パスを使用してファイルが.gitignoreパターンにマッチするかを確認します。
-
-#### `analyze_with_bedrock(bedrock_runtime, code_content, file_path)`
-この関数は、Bedrock APIを使用してコードの解析を実行します。
-
-```python
-def analyze_with_bedrock(bedrock_runtime, code_content, file_path):
+for attempt in range(3):
     try:
-        flow_response = bedrock_runtime.invoke_flow(
-            flowIdentifier="F9PY7W1IXS",
-            flowAliasIdentifier="2EJ5QG9EI8",
-            inputs=[{
-                'content': {
-                    'document': code_content
-                },
-                'nodeName': 'FlowInputNode',
-                'nodeOutputName': 'document'
-            }]
-        )
-        # ... (エラー処理とリトライロジック)
-        return final_output
-    except Exception as e:
-        logger.error(f"Error analyzing {file_path}: {str(e)}")
-        return None
+        time.sleep(2 ** attempt)
+        # Bedrock API呼び出し
+        # ...
+    except ClientError as retry_error:
+        if attempt == 2:
+            raise retry_error
+        continue
 ```
-
-この関数は、Bedrock APIを呼び出してコード解析を行い、結果を返します。エラーが発生した場合は最大3回のリトライを行います。
-
-#### `process_directory(input_dir, output_dir, target_extensions)`
-この関数は、指定されたディレクトリ内のファイルを処理します。
-
-```python
-def process_directory(input_dir, output_dir, target_extensions):
-    processed_files = set()
-    all_results = []
-    for root, _, files in os.walk(input_dir):
-        for file_name in files:
-            # ... (ファイル処理ロジック)
-    return {
-        'message': 'Processing complete',
-        'total_processed': len(processed_files),
-        'results': all_results
-    }
-```
-
-この関数は、入力ディレクトリ内のすべてのファイルを走査し、対象の拡張子を持つファイルを処理します。各ファイルに対して.gitignoreチェック、Bedrock APIによる解析、結果の保存を行います。
-
-### メイン実行関数
-`main()` 関数は、環境変数から設定を読み込み、`process_directory()` 関数を呼び出してディレクトリ処理を実行します。
+このコードは、Bedrock API呼び出し時のエラーに対して、指数バックオフを使用して最大3回のリトライを行います。
 
 ## 3. 動作仕様
-1. 環境変数から入力ディレクトリ、出力ディレクトリ、対象ファイル拡張子を読み込みます。
-2. 入力ディレクトリ内のファイルを再帰的に走査します。
+1. プログラムは`main()`関数から開始し、環境変数から設定を読み込みます。
+2. `process_directory()`関数が呼び出され、指定されたディレクトリ内のファイルを処理します。
 3. 各ファイルに対して:
-   a. ファイル拡張子が対象リストに含まれているかチェックします。
-   b. 最も近い.gitignoreファイルを探し、ファイルが無視パターンにマッチするかチェックします。
-   c. Bedrock APIを使用してコード解析を実行します。
+   a. .gitignoreファイルをチェックし、無視すべきファイルをスキップします。
+   b. 指定された拡張子を持つファイルのみを処理します。
+   c. `analyze_with_bedrock()`関数を使用してBedrock APIでコード解析を実行します。
    d. 解析結果をMarkdownファイルとして出力ディレクトリに保存します。
-4. 処理結果の要約（総処理ファイル数、成功/失敗状況）をJSON形式で出力します。
+4. 全ファイルの処理が完了すると、結果の要約をJSON形式で出力します。
 
-このスクリプトは、大規模なコードベースの自動ドキュメント生成や、コードレビューの補助ツールとして活用できます。
+このプログラムは、大規模なコードベースの自動解析や、コードレビューの補助ツールとして使用できます。エラーハンドリングとリトライロジックにより、安定した動作を実現しています。
