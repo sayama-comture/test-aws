@@ -7,7 +7,6 @@ import boto3
 import time
 from botocore.exceptions import ClientError
 
-
 # Configure logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
