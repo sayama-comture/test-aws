@@ -218,6 +218,7 @@ def main():
     メイン実行関数
     """
     # 環境変数から設定を読み込み
+    input_files = os.environ.get('CHECK')
     input_dir = "input"
     output_dir = "output"
     target_extensions = [ext.strip() for ext in os.environ.get('TARGET_EXTENSIONS', '.py,.js,.java,.cpp').split(',')]
